@@ -78,7 +78,8 @@ if st.button("\U0001F6A8 Run Rug Check"):
                 results.append({
                     "Wallet": wallet,
                     "Wallet Age (Days)": age,
-                    "New Wallet (<24h)": is_new,
+                    "New Wallet (<24h)": "✅" if is_new else "",
+                    "Is New Wallet": is_new,
                     "Funders": ", ".join(funders)
                 })
 
@@ -97,9 +98,9 @@ if st.button("\U0001F6A8 Run Rug Check"):
         df["In Cluster"] = df["Wallet"].apply(lambda w: wallet_cluster_map.get(w, ""))
 
         def risk_score(row):
-            if row["New Wallet (<24h)"] and row["In Cluster"]:
+            if row["Is New Wallet"] and row["In Cluster"]:
                 return "High"
-            elif row["New Wallet (<24h)"] or row["In Cluster"]:
+            elif row["Is New Wallet"] or row["In Cluster"]:
                 return "Medium"
             return "Low"
 
@@ -122,8 +123,8 @@ if st.button("\U0001F6A8 Run Rug Check"):
         # Display results with tooltips
         st.success("✅ Analysis complete.")
         st.markdown("### 🧾 Results")
-        st.dataframe(df.style.applymap(
-            lambda val: "background-color: #ffcccc" if val is True else "",
+        st.dataframe(df.drop(columns=["Is New Wallet"]).style.applymap(
+            lambda val: "color: green; font-weight: bold" if val == "✅" else "",
             subset=["New Wallet (<24h)"]
         ).applymap(
             lambda val: "background-color: #ffe599" if isinstance(val, str) and val else "",
@@ -134,5 +135,5 @@ if st.button("\U0001F6A8 Run Rug Check"):
         ))
 
         # CSV Export
-        csv = df.to_csv(index=False).encode("utf-8")
+        csv = df.drop(columns=["Is New Wallet"]).to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download CSV", csv, "manual_rug_check_v02.csv", "text/csv")
