@@ -3,35 +3,15 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone
 import time
+from collections import defaultdict
 
 # === CONFIG ===
-st.set_page_config(page_title="Rug Checker", layout="wide")
-st.title("💣 Meme Coin Rug Checker")
+st.set_page_config(page_title="Manual Wallet Rug Checker", layout="wide")
+st.title("💣 Manual Wallet Rug Checker")
 
-HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace if local
+HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace for local use
 
-# === SOLSCAN HOLDER API ===
-def fetch_spl_holders_solscan(mint):
-    url = f"https://public-api.solscan.io/token/holders?tokenAddress={mint}&limit=1000"
-    headers = {"accept": "application/json"}
-    try:
-        res = requests.get(url, headers=headers)
-        st.text(f"Solscan Status: {res.status_code}")
-        st.code(res.text[:1000])
-
-        data = res.json()
-        holders = []
-        for h in data:
-            holders.append({
-                "Wallet": h.get("owner", ""),
-                "Balance": h.get("tokenAmount", {}).get("uiAmount", 0)
-            })
-        return holders
-    except Exception as e:
-        st.error("❌ Error fetching token holders from Solscan.")
-        return []
-
-# === HELIUS WALLET AGE ===
+# === Wallet Age Check ===
 def get_wallet_age(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
     try:
@@ -46,53 +26,70 @@ def get_wallet_age(wallet):
         pass
     return "N/A", True
 
-# === UI ===
-mode = st.radio("Choose input mode:", ["SPL Token (Auto)", "Manual Wallet List"])
+# === Cluster Detection ===
+def get_funders(wallet):
+    url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=10"
+    try:
+        res = requests.get(url)
+        data = res.json()
+        funders = set()
+        for tx in data:
+            if tx.get("type") in ["TRANSFER", "TRANSFER_SOL"]:
+                sender = tx.get("source")
+                if sender and sender != wallet:
+                    funders.add(sender)
+        return list(funders)
+    except:
+        return []
 
-if mode == "SPL Token (Auto)":
-    mint = st.text_input("Enter SPL Token Mint Address")
-    if st.button("🔍 Analyze SPL Token"):
-        if not mint:
-            st.warning("Please enter a mint address.")
-        else:
-            st.info("Fetching token holders from Solscan...")
-            holders = fetch_spl_holders_solscan(mint)
-            if not holders:
-                st.error("No holders found. Token might be invalid or too new.")
-            else:
-                df = pd.DataFrame(holders)
-                for i, row in df.iterrows():
-                    age, is_new = get_wallet_age(row["Wallet"])
-                    df.at[i, "Wallet Age (Days)"] = age
-                    df.at[i, "New Wallet (<24h)"] = is_new
-                    time.sleep(0.25)
-                st.success("Analysis complete!")
-                st.dataframe(df)
-                csv = df.to_csv(index=False).encode("utf-8")
-                st.download_button("📥 Download CSV", csv, "spl_token_analysis.csv", "text/csv")
+# === Manual Input UI ===
+st.markdown("### 📋 Paste wallet addresses (one per line):")
+wallet_input = st.text_area("Wallets", height=200, value="""7Lg4egzEujYwMkXzZYCSkSbsVym1pGmZYWBiXixQ8RAQ
+4Q9bq2AP4TVbtE8G6ezP4WpXqGCEcLvF5VNQcd9nMLmN""")
 
-elif mode == "Manual Wallet List":
-    st.markdown("Paste wallet addresses and balances (CSV format):")
-    ex = """7Lg4egzEujYwMkXzZYCSkSbsVym1pGmZYWBiXixQ8RAQ, 2800
-4Q9bq2AP4TVbtE8G6ezP4WpXqGCEcLvF5VNQcd9nMLmN, 1200"""
-    raw_input = st.text_area("Wallet, Balance", value=ex, height=200)
+if st.button("🚨 Run Rug Check"):
+    wallets = list(set(line.strip() for line in wallet_input.strip().splitlines() if line.strip()))
+    
+    if not wallets:
+        st.warning("Please paste at least one wallet address.")
+    else:
+        results = []
+        funder_map = defaultdict(list)
 
-    if st.button("🧠 Analyze Wallet List"):
-        wallets = []
-        for line in raw_input.strip().splitlines():
-            try:
-                addr, bal = line.strip().split(",")
-                wallets.append({"Wallet": addr.strip(), "Balance": float(bal.strip())})
-            except:
-                continue
+        st.info("Analyzing wallets... this may take a moment.")
+        progress = st.progress(0)
 
-        df = pd.DataFrame(wallets)
-        for i, row in df.iterrows():
-            age, is_new = get_wallet_age(row["Wallet"])
-            df.at[i, "Wallet Age (Days)"] = age
-            df.at[i, "New Wallet (<24h)"] = is_new
+        for i, wallet in enumerate(wallets):
+            age, is_new = get_wallet_age(wallet)
+            funders = get_funders(wallet)
+
+            # Map funders to wallets
+            for f in funders:
+                funder_map[f].append(wallet)
+
+            results.append({
+                "Wallet": wallet,
+                "Wallet Age (Days)": age,
+                "New Wallet (<24h)": is_new,
+                "Funders": ", ".join(funders)
+            })
+
+            progress.progress((i + 1) / len(wallets))
             time.sleep(0.25)
-        st.success("Manual analysis complete!")
+
+        df = pd.DataFrame(results)
+
+        # Add cluster tags
+        wallet_cluster_map = {}
+        for funder, targets in funder_map.items():
+            if len(targets) > 1:
+                for w in targets:
+                    wallet_cluster_map[w] = f"Cluster via {funder[:6]}..."
+
+        df["In Cluster"] = df["Wallet"].apply(lambda w: wallet_cluster_map.get(w, ""))
+
+        st.success("✅ Scan complete.")
         st.dataframe(df)
+
         csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download CSV", csv, "manual_wallet_analysis.csv", "text/csv")
+        st.download_button("📥 Download CSV", csv, "manual_rug_check.csv", "text/csv")
