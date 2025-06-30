@@ -13,18 +13,27 @@ HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replac
 
 # === Wallet Age Check ===
 def get_wallet_age(wallet):
-    url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
+    # Use Solana RPC passthrough via Helius
+    url = "https://rpc.helius.xyz/?api-key=" + HELIUS_API_KEY
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getSignaturesForAddress",
+        "params": [wallet, {"limit": 1}]
+    }
+
     try:
-        res = requests.get(url)
-        data = res.json()
-        if isinstance(data, list) and data:
-            ts = data[0]["timestamp"]
+        res = requests.post(url, json=payload)
+        data = res.json().get("result", [])
+
+        if data and data[0].get("blockTime"):
+            ts = data[0]["blockTime"]
             dt = datetime.fromtimestamp(ts, tz=timezone.utc)
             days = (datetime.now(timezone.utc) - dt).days
             return days, days < 1
-    except:
+    except Exception as e:
         pass
-    return "N/A", True
+
 
 # === Cluster Detection ===
 def get_funders(wallet):
