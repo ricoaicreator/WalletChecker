@@ -13,9 +13,9 @@ st.title(f"\U0001F4A3 Manual Wallet Rug Checker — v{APP_VERSION}")
 
 HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")
 
-# === Wallet Age Detection using Oldest Transaction
+# === Wallet Age Detection using oldest tx with debug logging
 def get_wallet_age(wallet):
-    url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=20"
+    url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=100"
     try:
         res = requests.get(url)
         st.sidebar.write(f"[{wallet}] Status {res.status_code}")
@@ -25,17 +25,21 @@ def get_wallet_age(wallet):
             st.sidebar.write(f"[{wallet}] ❌ No transactions returned")
             return "N/A", True
 
-        # Use the oldest transaction in the list
-        timestamps = [tx.get("timestamp") or tx.get("blockTime") for tx in txs if tx.get("timestamp") or tx.get("blockTime")]
+        timestamps = []
+        for tx in txs:
+            ts = tx.get("timestamp") or tx.get("blockTime")
+            if ts:
+                timestamps.append(ts)
+                st.sidebar.write(f"[{wallet}] → {ts}")
+
         if not timestamps:
+            st.sidebar.write(f"[{wallet}] ❌ No valid timestamps found")
             return "N/A", True
 
         oldest_ts = min(timestamps)
-        st.sidebar.write(f"[{wallet}] Oldest Timestamp: {oldest_ts}")
-
         dt = datetime.fromtimestamp(oldest_ts, tz=timezone.utc)
         days_old = (datetime.now(timezone.utc) - dt).days
-        st.sidebar.write(f"[{wallet}] Wallet Age: {days_old} days")
+        st.sidebar.write(f"[{wallet}] ✅ Oldest Age: {days_old} days")
 
         return days_old, days_old < 1
 
