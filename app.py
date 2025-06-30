@@ -6,36 +6,46 @@ import time
 from collections import defaultdict
 
 # === CONFIG ===
-st.set_page_config(page_title="Manual Rug Checker", layout="wide")
-st.title("💣 Manual Wallet Rug Checker")
+APP_VERSION = "0.01"
+st.set_page_config(page_title=f"Manual Rug Checker v{APP_VERSION}", layout="wide")
+st.title(f"💣 Manual Wallet Rug Checker — v{APP_VERSION}")
 
-HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace if running locally
+HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")
 
-# === Accurate Wallet Age Detection ===
+# === Wallet Age Detection (with debug printing)
 def get_wallet_age(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
     try:
         res = requests.get(url)
+        print(f"[{wallet}] Status Code:", res.status_code)
+
         if res.status_code != 200:
-            return "N/A", True  # treat unknown as suspicious
+            print(f"[{wallet}] Failed to get transactions.")
+            return "N/A", True
 
         txs = res.json()
         if not txs or not isinstance(txs, list):
+            print(f"[{wallet}] No transactions returned.")
             return "N/A", True
 
         tx = txs[0]
+        print(f"[{wallet}] First TX:", tx)
+
         ts = tx.get("timestamp") or tx.get("blockTime")
         if not ts:
+            print(f"[{wallet}] No timestamp/blockTime.")
             return "N/A", True
 
         dt = datetime.fromtimestamp(ts, tz=timezone.utc)
         days_old = (datetime.now(timezone.utc) - dt).days
+        print(f"[{wallet}] Wallet is {days_old} days old.")
         return days_old, days_old < 1
+
     except Exception as e:
-        print(f"Wallet Age Lookup Error ({wallet}):", e)
+        print(f"[{wallet}] Wallet Age Error:", e)
         return "N/A", True
 
-# === Cluster Detection ===
+# === Cluster Detection
 def get_funders(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=10"
     try:
@@ -49,17 +59,17 @@ def get_funders(wallet):
                     funders.add(sender)
         return list(funders)
     except Exception as e:
-        print(f"Funder Lookup Error ({wallet}):", e)
+        print(f"[{wallet}] Funder Error:", e)
         return []
 
-# === Wallet Input UI ===
+# === Wallet Input UI
 st.markdown("### 📋 Paste wallet addresses (one per line):")
 wallet_input = st.text_area("Wallets", height=200, value="""7Lg4egzEujYwMkXzZYCSkSbsVym1pGmZYWBiXixQ8RAQ
 4Q9bq2AP4TVbtE8G6ezP4WpXqGCEcLvF5VNQcd9nMLmN""")
 
 if st.button("🚨 Run Rug Check"):
     raw_wallets = wallet_input.strip().splitlines()
-    wallets = list(set(w.strip() for w in raw_wallets if len(w.strip()) >= 32))  # basic filter
+    wallets = list(set(w.strip() for w in raw_wallets if len(w.strip()) >= 32))
 
     if not wallets:
         st.warning("Please paste at least one valid wallet address.")
@@ -89,7 +99,7 @@ if st.button("🚨 Run Rug Check"):
 
         df = pd.DataFrame(results)
 
-        # Cluster labeling
+        # Cluster labels
         wallet_cluster_map = {}
         for funder, funded_wallets in funder_map.items():
             if len(funded_wallets) > 1:
@@ -98,10 +108,10 @@ if st.button("🚨 Run Rug Check"):
 
         df["In Cluster"] = df["Wallet"].apply(lambda w: wallet_cluster_map.get(w, ""))
 
-        # Display
+        # Display results
         st.success("✅ Analysis complete.")
         st.dataframe(df)
 
-        # CSV Download
+        # Download
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("📥 Download CSV", csv, "manual_rug_check.csv", "text/csv")
