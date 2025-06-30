@@ -8,9 +8,9 @@ import time
 st.set_page_config(page_title="Rug Checker", layout="wide")
 st.title("💣 Meme Coin Rug Checker")
 
-HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # fallback for local
+HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace if local
 
-# === HELIUS HOLDER API ===
+# === HELIUS HOLDER API (REST) ===
 def fetch_spl_holders(mint):
     url = f"https://api.helius.xyz/v1/tokens/holders?api-key={HELIUS_API_KEY}&mint={mint}&limit=1000"
     try:
@@ -30,7 +30,7 @@ def fetch_spl_holders(mint):
         st.error("❌ Error fetching token holders.")
         return []
 
-# === HELIUS WALLET AGE ===
+# === HELIUS WALLET AGE LOOKUP ===
 def get_wallet_age(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
     try:
