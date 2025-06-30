@@ -46,6 +46,11 @@ def fetch_spl_holders(mint):
         ]
     }
     res = requests.post(RPC_URL, json=body, headers=headers)
+
+    # 🔍 Debug output here:
+    st.text(f"Status: {res.status_code}")
+    st.code(res.text[:1000])
+    
     try:
         data = res.json().get("result", [])
         holders = []
