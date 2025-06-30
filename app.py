@@ -6,34 +6,31 @@ import time
 from collections import defaultdict
 
 # === CONFIG ===
-st.set_page_config(page_title="Manual Wallet Rug Checker", layout="wide")
+st.set_page_config(page_title="Manual Rug Checker", layout="wide")
 st.title("💣 Manual Wallet Rug Checker")
 
-HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace for local use
+HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace if local
 
-# === Wallet Age Check ===
+# === Wallet Age Check (uses Solana RPC passthrough) ===
 def get_wallet_age(wallet):
-    # Use Solana RPC passthrough via Helius
-    url = "https://rpc.helius.xyz/?api-key=" + HELIUS_API_KEY
-    payload = {
+    url = f"https://rpc.helius.xyz/?api-key={HELIUS_API_KEY}"
+    body = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": "getSignaturesForAddress",
         "params": [wallet, {"limit": 1}]
     }
-
     try:
-        res = requests.post(url, json=payload)
+        res = requests.post(url, json=body)
         data = res.json().get("result", [])
-
         if data and data[0].get("blockTime"):
             ts = data[0]["blockTime"]
             dt = datetime.fromtimestamp(ts, tz=timezone.utc)
             days = (datetime.now(timezone.utc) - dt).days
             return days, days < 1
-    except Exception as e:
+    except:
         pass
-
+    return "N/A", True  # fallback if no result
 
 # === Cluster Detection ===
 def get_funders(wallet):
@@ -51,14 +48,14 @@ def get_funders(wallet):
     except:
         return []
 
-# === Manual Input UI ===
+# === UI ===
 st.markdown("### 📋 Paste wallet addresses (one per line):")
 wallet_input = st.text_area("Wallets", height=200, value="""7Lg4egzEujYwMkXzZYCSkSbsVym1pGmZYWBiXixQ8RAQ
 4Q9bq2AP4TVbtE8G6ezP4WpXqGCEcLvF5VNQcd9nMLmN""")
 
 if st.button("🚨 Run Rug Check"):
     wallets = list(set(line.strip() for line in wallet_input.strip().splitlines() if line.strip()))
-    
+
     if not wallets:
         st.warning("Please paste at least one wallet address.")
     else:
@@ -72,7 +69,7 @@ if st.button("🚨 Run Rug Check"):
             age, is_new = get_wallet_age(wallet)
             funders = get_funders(wallet)
 
-            # Map funders to wallets
+            # Track which wallets were funded by same sources
             for f in funders:
                 funder_map[f].append(wallet)
 
@@ -88,11 +85,11 @@ if st.button("🚨 Run Rug Check"):
 
         df = pd.DataFrame(results)
 
-        # Add cluster tags
+        # Label clusters
         wallet_cluster_map = {}
-        for funder, targets in funder_map.items():
-            if len(targets) > 1:
-                for w in targets:
+        for funder, funded_wallets in funder_map.items():
+            if len(funded_wallets) > 1:
+                for w in funded_wallets:
                     wallet_cluster_map[w] = f"Cluster via {funder[:6]}..."
 
         df["In Cluster"] = df["Wallet"].apply(lambda w: wallet_cluster_map.get(w, ""))
