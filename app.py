@@ -77,4 +77,22 @@ elif mode == "Manual Wallet List":
 4Q9bq2AP4TVbtE8G6ezP4WpXqGCEcLvF5VNQcd9nMLmN, 1200"""
     raw_input = st.text_area("Wallet, Balance", value=ex, height=200)
 
-    if st.button
+    if st.button("🧠 Analyze Wallet List"):
+        wallets = []
+        for line in raw_input.strip().splitlines():
+            try:
+                addr, bal = line.strip().split(",")
+                wallets.append({"Wallet": addr.strip(), "Balance": float(bal.strip())})
+            except:
+                continue
+
+        df = pd.DataFrame(wallets)
+        for i, row in df.iterrows():
+            age, is_new = get_wallet_age(row["Wallet"])
+            df.at[i, "Wallet Age (Days)"] = age
+            df.at[i, "New Wallet (<24h)"] = is_new
+            time.sleep(0.25)
+        st.success("Manual analysis complete!")
+        st.dataframe(df)
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Download CSV", csv, "manual_wallet_analysis.csv", "text/csv")
