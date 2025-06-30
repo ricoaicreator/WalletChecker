@@ -10,7 +10,7 @@ st.title("💣 Meme Coin Rug Checker")
 
 HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # fallback for local
 
-RPC_URL = "https://api.mainnet-beta.solana.com"
+RPC_URL = "https://rpc.helius.xyz/?api-key=YOUR_HELIUS_API_KEY"
 
 # === HELPERS ===
 
