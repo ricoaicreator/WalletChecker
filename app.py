@@ -9,28 +9,25 @@ from collections import defaultdict
 st.set_page_config(page_title="Manual Rug Checker", layout="wide")
 st.title("💣 Manual Wallet Rug Checker")
 
-HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace if local
+HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace with actual key if running locally
 
-# === Wallet Age Check (uses Solana RPC passthrough) ===
+# === Wallet Age Detection (Helius - More Reliable Version) ===
 def get_wallet_age(wallet):
-    url = f"https://rpc.helius.xyz/?api-key={HELIUS_API_KEY}"
-    body = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getSignaturesForAddress",
-        "params": [wallet, {"limit": 1}]
-    }
+    url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
     try:
-        res = requests.post(url, json=body)
-        data = res.json().get("result", [])
-        if data and data[0].get("blockTime"):
-            ts = data[0]["blockTime"]
-            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-            days = (datetime.now(timezone.utc) - dt).days
-            return days, days < 1
-    except:
+        res = requests.get(url)
+        txs = res.json()
+
+        if txs and isinstance(txs, list):
+            ts = txs[0].get("timestamp") or txs[0].get("blockTime")
+            if ts:
+                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                days = (datetime.now(timezone.utc) - dt).days
+                return days, days < 1
+    except Exception as e:
         pass
-    return "N/A", True  # fallback if no result
+
+    return "N/A", True  # If we can't determine, treat as suspicious/new
 
 # === Cluster Detection ===
 def get_funders(wallet):
@@ -62,14 +59,13 @@ if st.button("🚨 Run Rug Check"):
         results = []
         funder_map = defaultdict(list)
 
-        st.info("Analyzing wallets... this may take a moment.")
+        st.info("Analyzing wallets... hang tight.")
         progress = st.progress(0)
 
         for i, wallet in enumerate(wallets):
             age, is_new = get_wallet_age(wallet)
             funders = get_funders(wallet)
 
-            # Track which wallets were funded by same sources
             for f in funders:
                 funder_map[f].append(wallet)
 
