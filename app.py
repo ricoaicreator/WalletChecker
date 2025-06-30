@@ -9,25 +9,31 @@ from collections import defaultdict
 st.set_page_config(page_title="Manual Rug Checker", layout="wide")
 st.title("💣 Manual Wallet Rug Checker")
 
-HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace with your actual API key if local
+HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # Replace if running locally
 
-# === Wallet Age Detection (reliable version) ===
+# === Accurate Wallet Age Detection ===
 def get_wallet_age(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
     try:
         res = requests.get(url)
+        if res.status_code != 200:
+            return "N/A", True  # treat unknown as suspicious
+
         txs = res.json()
+        if not txs or not isinstance(txs, list):
+            return "N/A", True
 
-        if txs and isinstance(txs, list):
-            ts = txs[0].get("timestamp") or txs[0].get("blockTime")
-            if ts:
-                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-                days = (datetime.now(timezone.utc) - dt).days
-                return days, days < 1
+        tx = txs[0]
+        ts = tx.get("timestamp") or tx.get("blockTime")
+        if not ts:
+            return "N/A", True
+
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        days_old = (datetime.now(timezone.utc) - dt).days
+        return days_old, days_old < 1
     except Exception as e:
-        print(f"Wallet Age Lookup Error for {wallet}: {e}")
-
-    return "N/A", True  # fallback to suspicious
+        print(f"Wallet Age Lookup Error ({wallet}):", e)
+        return "N/A", True
 
 # === Cluster Detection ===
 def get_funders(wallet):
@@ -43,7 +49,7 @@ def get_funders(wallet):
                     funders.add(sender)
         return list(funders)
     except Exception as e:
-        print(f"Funder Lookup Error for {wallet}: {e}")
+        print(f"Funder Lookup Error ({wallet}):", e)
         return []
 
 # === Wallet Input UI ===
@@ -53,7 +59,7 @@ wallet_input = st.text_area("Wallets", height=200, value="""7Lg4egzEujYwMkXzZYCS
 
 if st.button("🚨 Run Rug Check"):
     raw_wallets = wallet_input.strip().splitlines()
-    wallets = list(set(w.strip() for w in raw_wallets if len(w.strip()) >= 32))  # basic length filter
+    wallets = list(set(w.strip() for w in raw_wallets if len(w.strip()) >= 32))  # basic filter
 
     if not wallets:
         st.warning("Please paste at least one valid wallet address.")
@@ -68,7 +74,6 @@ if st.button("🚨 Run Rug Check"):
             age, is_new = get_wallet_age(wallet)
             funders = get_funders(wallet)
 
-            # Track which wallets were funded by the same source
             for f in funders:
                 funder_map[f].append(wallet)
 
