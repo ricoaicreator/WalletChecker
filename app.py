@@ -7,7 +7,7 @@ from collections import defaultdict
 import plotly.express as px
 
 # === CONFIG ===
-APP_VERSION = "0.04"
+APP_VERSION = "0.05"
 st.set_page_config(page_title=f"Manual Rug Checker v{APP_VERSION}", layout="wide")
 st.title(f"\U0001F4A3 Manual Wallet Rug Checker — v{APP_VERSION}")
 
@@ -86,6 +86,7 @@ if st.button("\U0001F6A8 Run Rug Check"):
     else:
         results = []
         funder_map = defaultdict(list)
+        reverse_map = defaultdict(list)
         new_wallets = 0
 
         with st.spinner("Analyzing wallets... this may take a few seconds..."):
@@ -95,6 +96,7 @@ if st.button("\U0001F6A8 Run Rug Check"):
 
                 for f in funders:
                     funder_map[f].append(wallet)
+                    reverse_map[wallet].append(f)
 
                 results.append({
                     "Wallet": wallet,
@@ -111,12 +113,16 @@ if st.button("\U0001F6A8 Run Rug Check"):
         df = pd.DataFrame(results)
 
         wallet_cluster_map = {}
+        funder_flag_map = defaultdict(bool)
         for funder, funded_wallets in funder_map.items():
             if len(funded_wallets) > 1:
                 for w in funded_wallets:
                     wallet_cluster_map[w] = f"Cluster via {funder[:6]}..."
+                if funder in wallets:
+                    funder_flag_map[funder] = True
 
         df["In Cluster"] = df["Wallet"].apply(lambda w: wallet_cluster_map.get(w, ""))
+        df["Is Funder"] = df["Wallet"].apply(lambda w: "✅" if funder_flag_map.get(w, False) else "")
 
         def risk_score(row):
             if row["Is New Wallet"] and row["In Cluster"]:
@@ -132,28 +138,7 @@ if st.button("\U0001F6A8 Run Rug Check"):
         st.sidebar.markdown(f"**Total Wallets:** {len(wallets)}")
         st.sidebar.markdown(f"**New Wallets (<24h):** {new_wallets}")
         st.sidebar.markdown(f"**Clustered Wallets:** {sum(df['In Cluster'] != '')}")
-
-        # Pie chart: New vs Old
-        pie_data = pd.DataFrame({
-            "Type": ["New", "Old"],
-            "Count": [new_wallets, len(wallets) - new_wallets]
-        })
-        fig_pie = px.pie(pie_data, values="Count", names="Type", title="New vs Old Wallets")
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-        # Bar chart: Wallet age distribution
-        def age_bucket(days):
-            if days == "N/A": return "Unknown"
-            if days < 1: return "<1 Day"
-            if days <= 3: return "1-3 Days"
-            if days <= 7: return "4-7 Days"
-            return "8+ Days"
-
-        df["Age Bucket"] = df["Wallet Age (Days)"].apply(age_bucket)
-        age_counts = df["Age Bucket"].value_counts().reset_index()
-        age_counts.columns = ["Age", "Count"]
-        fig_bar = px.bar(age_counts, x="Age", y="Count", title="Wallets by Age Group")
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.sidebar.markdown(f"**Wallets That Are Funders:** {df['Is Funder'].value_counts().get('✅', 0)}")
 
         # Display results with styles
         display_df = df.drop(columns=["Is New Wallet"])
@@ -163,7 +148,7 @@ if st.button("\U0001F6A8 Run Rug Check"):
         st.success("✅ Analysis complete.")
         st.markdown("### 🧾 Results")
         st.dataframe(display_df.style
-            .applymap(lambda val: "color: green; font-weight: bold" if val == "✅" else "", subset=["New Wallet (<24h)"])
+            .applymap(lambda val: "color: green; font-weight: bold" if val == "✅" else "", subset=["New Wallet (<24h)", "Is Funder"])
             .applymap(lambda val: "background-color: #ffe599" if isinstance(val, str) and val else "", subset=["In Cluster"])
             .applymap(lambda val:
                       "background-color: #ffcccc" if val == "High" else
@@ -172,4 +157,4 @@ if st.button("\U0001F6A8 Run Rug Check"):
 
         # CSV Export
         csv = display_df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download CSV", csv, "manual_rug_check_v04.csv", "text/csv")
+        st.download_button("📥 Download CSV", csv, "manual_rug_check_v05.csv", "text/csv")
