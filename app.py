@@ -7,13 +7,21 @@ from collections import defaultdict
 import plotly.express as px
 
 # === CONFIG ===
-APP_VERSION = "0.03"
+APP_VERSION = "0.04"
 st.set_page_config(page_title=f"Manual Rug Checker v{APP_VERSION}", layout="wide")
 st.title(f"\U0001F4A3 Manual Wallet Rug Checker — v{APP_VERSION}")
 
 HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")
 
-# === Wallet Age Detection using oldest tx with debug logging
+# System or program addresses to ignore in clustering
+IGNORED_FUNDERS = {
+    "11111111111111111111111111111111",
+    "ComputeBudget111111111111111111111111111111",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "pfnUxCuZcfP6yidkG3EsqyR5DTbyie3R74fGoA5oB3J"
+}
+
+# === Wallet Age Detection with debug logging
 def get_wallet_age(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=100"
     try:
@@ -57,7 +65,7 @@ def get_funders(wallet):
         for tx in data:
             if tx.get("type") in ["TRANSFER", "TRANSFER_SOL"]:
                 sender = tx.get("source")
-                if sender and sender != wallet:
+                if sender and sender != wallet and sender not in IGNORED_FUNDERS:
                     funders.add(sender)
         return list(funders)
     except Exception:
@@ -67,6 +75,7 @@ def get_funders(wallet):
 st.markdown("### \U0001F4CB Paste wallet addresses (one per line):")
 wallet_input = st.text_area("Wallets", height=200, value="""7Lg4egzEujYwMkXzZYCSkSbsVym1pGmZYWBiXixQ8RAQ
 4Q9bq2AP4TVbtE8G6ezP4WpXqGCEcLvF5VNQcd9nMLmN""")
+hide_low = st.checkbox("🔍 Hide Low Risk Wallets")
 
 if st.button("\U0001F6A8 Run Rug Check"):
     raw_wallets = wallet_input.strip().splitlines()
@@ -124,28 +133,43 @@ if st.button("\U0001F6A8 Run Rug Check"):
         st.sidebar.markdown(f"**New Wallets (<24h):** {new_wallets}")
         st.sidebar.markdown(f"**Clustered Wallets:** {sum(df['In Cluster'] != '')}")
 
-        # Pie chart
+        # Pie chart: New vs Old
         pie_data = pd.DataFrame({
             "Type": ["New", "Old"],
             "Count": [new_wallets, len(wallets) - new_wallets]
         })
-        fig = px.pie(pie_data, values="Count", names="Type", title="New vs Old Wallets")
-        st.plotly_chart(fig, use_container_width=True)
+        fig_pie = px.pie(pie_data, values="Count", names="Type", title="New vs Old Wallets")
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-        # Display results with tooltips
+        # Bar chart: Wallet age distribution
+        def age_bucket(days):
+            if days == "N/A": return "Unknown"
+            if days < 1: return "<1 Day"
+            if days <= 3: return "1-3 Days"
+            if days <= 7: return "4-7 Days"
+            return "8+ Days"
+
+        df["Age Bucket"] = df["Wallet Age (Days)"].apply(age_bucket)
+        age_counts = df["Age Bucket"].value_counts().reset_index()
+        age_counts.columns = ["Age", "Count"]
+        fig_bar = px.bar(age_counts, x="Age", y="Count", title="Wallets by Age Group")
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+        # Display results with styles
+        display_df = df.drop(columns=["Is New Wallet"])
+        if hide_low:
+            display_df = display_df[display_df["Risk Score"] != "Low"]
+
         st.success("✅ Analysis complete.")
         st.markdown("### 🧾 Results")
-        st.dataframe(df.drop(columns=["Is New Wallet"]).style.applymap(
-            lambda val: "color: green; font-weight: bold" if val == "✅" else "",
-            subset=["New Wallet (<24h)"]
-        ).applymap(
-            lambda val: "background-color: #ffe599" if isinstance(val, str) and val else "",
-            subset=["In Cluster"]
-        ).applymap(
-            lambda val: "color: red; font-weight: bold" if val == "High" else ("color: orange" if val == "Medium" else "color: green"),
-            subset=["Risk Score"]
-        ))
+        st.dataframe(display_df.style
+            .applymap(lambda val: "color: green; font-weight: bold" if val == "✅" else "", subset=["New Wallet (<24h)"])
+            .applymap(lambda val: "background-color: #ffe599" if isinstance(val, str) and val else "", subset=["In Cluster"])
+            .applymap(lambda val:
+                      "background-color: #ffcccc" if val == "High" else
+                      ("background-color: #fff2cc" if val == "Medium" else ""),
+                      subset=["Risk Score"]))
 
         # CSV Export
-        csv = df.drop(columns=["Is New Wallet"]).to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download CSV", csv, "manual_rug_check_v03.csv", "text/csv")
+        csv = display_df.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Download CSV", csv, "manual_rug_check_v04.csv", "text/csv")
