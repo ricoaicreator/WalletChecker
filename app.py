@@ -7,7 +7,7 @@ from collections import defaultdict
 import plotly.express as px
 
 # === CONFIG ===
-APP_VERSION = "0.06"
+APP_VERSION = "0.07"
 st.set_page_config(page_title=f"Manual Rug Checker v{APP_VERSION}", layout="wide")
 st.title(f"\U0001F4A3 Manual Wallet Rug Checker — v{APP_VERSION}")
 
@@ -74,8 +74,12 @@ def get_funders(wallet):
 # === Fetch holders from Solscan
 def get_wallets_from_solscan(token_address):
     url = f"https://public-api.solscan.io/token/holders?tokenAddress={token_address}&limit=1000&offset=0"
+    headers = {
+        "accept": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
     try:
-        res = requests.get(url, headers={"accept": "application/json"})
+        res = requests.get(url, headers=headers)
         if res.status_code != 200:
             return [], f"❌ Solscan returned status code {res.status_code}"
         data = res.json()
@@ -181,4 +185,4 @@ if st.button("\U0001F6A8 Run Rug Check"):
                   subset=["Risk Score"]))
 
     csv = display_df.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 Download CSV", csv, "manual_rug_check_v06.csv", "text/csv")
+    st.download_button("📥 Download CSV", csv, "manual_rug_check_v07.csv", "text/csv")
