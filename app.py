@@ -10,10 +10,27 @@ st.title("💣 Meme Coin Rug Checker")
 
 HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")  # fallback for local
 
-RPC_URL = "https://rpc.helius.xyz/?api-key=YOUR_HELIUS_API_KEY"
+# === HELIUS HOLDER API ===
+def fetch_spl_holders(mint):
+    url = f"https://api.helius.xyz/v1/tokens/holders?api-key={HELIUS_API_KEY}&mint={mint}&limit=1000"
+    try:
+        response = requests.get(url)
+        st.text(f"Status: {response.status_code}")
+        st.code(response.text[:1000])  # Show raw JSON for debug
 
-# === HELPERS ===
+        data = response.json()
+        holders = []
+        for h in data.get("holders", []):
+            holders.append({
+                "Wallet": h.get("owner"),
+                "Balance": h.get("amount", 0)
+            })
+        return holders
+    except Exception as e:
+        st.error("❌ Error fetching token holders.")
+        return []
 
+# === HELIUS WALLET AGE ===
 def get_wallet_age(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
     try:
@@ -28,44 +45,7 @@ def get_wallet_age(wallet):
         pass
     return "N/A", True
 
-def fetch_spl_holders(mint):
-    headers = {"Content-Type": "application/json"}
-    body = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getParsedProgramAccounts",
-        "params": [
-            "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-            {
-                "encoding": "jsonParsed",
-                "filters": [
-                    {"dataSize": 165},
-                    {"memcmp": {"offset": 0, "bytes": mint}}
-                ]
-            }
-        ]
-    }
-    res = requests.post(RPC_URL, json=body, headers=headers)
-
-    # 🔍 Debug output here:
-    st.text(f"Status: {res.status_code}")
-    st.code(res.text[:1000])
-    
-    try:
-        data = res.json().get("result", [])
-        holders = []
-        for acct in data:
-            info = acct["account"]["data"]["parsed"]["info"]
-            owner = info["owner"]
-            amount = float(info["tokenAmount"]["uiAmount"])
-            if amount > 0:
-                holders.append({"Wallet": owner, "Balance": amount})
-        return holders
-    except:
-        return []
-
-# === UI ===
-
+# === UI MODE SELECTION ===
 mode = st.radio("Choose input mode:", ["SPL Token (Auto)", "Manual Wallet List"])
 
 if mode == "SPL Token (Auto)":
@@ -74,10 +54,10 @@ if mode == "SPL Token (Auto)":
         if not mint:
             st.warning("Please enter a mint address.")
         else:
-            st.info("Fetching token holders from Solana...")
+            st.info("Fetching token holders from Helius...")
             holders = fetch_spl_holders(mint)
             if not holders:
-                st.error("No holders found. Token might be invalid or empty.")
+                st.error("No holders found. Token might be invalid or too new.")
             else:
                 df = pd.DataFrame(holders)
                 for i, row in df.iterrows():
