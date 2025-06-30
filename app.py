@@ -13,26 +13,33 @@ st.title(f"\U0001F4A3 Manual Wallet Rug Checker — v{APP_VERSION}")
 
 HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")
 
-# === Wallet Age Detection (with debug printing)
+# === Wallet Age Detection with Debug Logging
 def get_wallet_age(wallet):
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
     try:
         res = requests.get(url)
+        st.sidebar.write(f"[{wallet}] Status {res.status_code}")
         txs = res.json()
 
-        if not txs or not isinstance(txs, list):
+        if not isinstance(txs, list) or len(txs) == 0:
+            st.sidebar.write(f"[{wallet}] ❌ No transactions returned")
             return "N/A", True
 
         tx = txs[0]
         ts = tx.get("timestamp") or tx.get("blockTime")
+        st.sidebar.write(f"[{wallet}] Timestamp: {ts}")
+
         if not ts:
             return "N/A", True
 
         dt = datetime.fromtimestamp(ts, tz=timezone.utc)
         days_old = (datetime.now(timezone.utc) - dt).days
+        st.sidebar.write(f"[{wallet}] Age: {days_old} days")
+
         return days_old, days_old < 1
 
-    except Exception:
+    except Exception as e:
+        st.sidebar.write(f"[{wallet}] ❌ Error: {str(e)}")
         return "N/A", True
 
 # === Cluster Detection
