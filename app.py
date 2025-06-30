@@ -7,15 +7,15 @@ from collections import defaultdict
 import plotly.express as px
 
 # === CONFIG ===
-APP_VERSION = "0.02"
+APP_VERSION = "0.03"
 st.set_page_config(page_title=f"Manual Rug Checker v{APP_VERSION}", layout="wide")
 st.title(f"\U0001F4A3 Manual Wallet Rug Checker — v{APP_VERSION}")
 
 HELIUS_API_KEY = st.secrets.get("HELIUS_API_KEY", "YOUR_API_KEY_HERE")
 
-# === Wallet Age Detection with Debug Logging
+# === Wallet Age Detection using Oldest Transaction
 def get_wallet_age(wallet):
-    url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=1"
+    url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={HELIUS_API_KEY}&limit=20"
     try:
         res = requests.get(url)
         st.sidebar.write(f"[{wallet}] Status {res.status_code}")
@@ -25,16 +25,17 @@ def get_wallet_age(wallet):
             st.sidebar.write(f"[{wallet}] ❌ No transactions returned")
             return "N/A", True
 
-        tx = txs[0]
-        ts = tx.get("timestamp") or tx.get("blockTime")
-        st.sidebar.write(f"[{wallet}] Timestamp: {ts}")
-
-        if not ts:
+        # Use the oldest transaction in the list
+        timestamps = [tx.get("timestamp") or tx.get("blockTime") for tx in txs if tx.get("timestamp") or tx.get("blockTime")]
+        if not timestamps:
             return "N/A", True
 
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        oldest_ts = min(timestamps)
+        st.sidebar.write(f"[{wallet}] Oldest Timestamp: {oldest_ts}")
+
+        dt = datetime.fromtimestamp(oldest_ts, tz=timezone.utc)
         days_old = (datetime.now(timezone.utc) - dt).days
-        st.sidebar.write(f"[{wallet}] Age: {days_old} days")
+        st.sidebar.write(f"[{wallet}] Wallet Age: {days_old} days")
 
         return days_old, days_old < 1
 
@@ -143,4 +144,4 @@ if st.button("\U0001F6A8 Run Rug Check"):
 
         # CSV Export
         csv = df.drop(columns=["Is New Wallet"]).to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download CSV", csv, "manual_rug_check_v02.csv", "text/csv")
+        st.download_button("📥 Download CSV", csv, "manual_rug_check_v03.csv", "text/csv")
