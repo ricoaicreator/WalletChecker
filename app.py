@@ -7,7 +7,7 @@ from collections import defaultdict
 import plotly.express as px
 
 # === CONFIG ===
-APP_VERSION = "0.05"
+APP_VERSION = "0.06"
 st.set_page_config(page_title=f"Manual Rug Checker v{APP_VERSION}", layout="wide")
 st.title(f"\U0001F4A3 Manual Wallet Rug Checker — v{APP_VERSION}")
 
@@ -71,90 +71,114 @@ def get_funders(wallet):
     except Exception:
         return []
 
-# === Wallet Input UI
-st.markdown("### \U0001F4CB Paste wallet addresses (one per line):")
-wallet_input = st.text_area("Wallets", height=200, value="""7Lg4egzEujYwMkXzZYCSkSbsVym1pGmZYWBiXixQ8RAQ
-4Q9bq2AP4TVbtE8G6ezP4WpXqGCEcLvF5VNQcd9nMLmN""")
+# === Fetch holders from Solscan
+def get_wallets_from_solscan(token_address):
+    url = f"https://public-api.solscan.io/token/holders?tokenAddress={token_address}&limit=1000&offset=0"
+    try:
+        res = requests.get(url, headers={"accept": "application/json"})
+        if res.status_code != 200:
+            return [], f"❌ Solscan returned status code {res.status_code}"
+        data = res.json()
+        return [holder["owner"] for holder in data], None
+    except Exception as e:
+        return [], f"❌ Error fetching from Solscan: {str(e)}"
+
+# === UI: Paste Wallets or Token
+st.markdown("### \U0001F4CB Option 1: Paste wallet addresses (one per line)")
+wallet_input = st.text_area("Wallets", height=200, value="")
+
+st.markdown("### \U0001F50E Option 2: Paste a Solscan Token URL or Address")
+token_input = st.text_input("Solscan Token (e.g. https://solscan.io/token/...) or address")
+
 hide_low = st.checkbox("🔍 Hide Low Risk Wallets")
 
 if st.button("\U0001F6A8 Run Rug Check"):
-    raw_wallets = wallet_input.strip().splitlines()
-    wallets = list(set(w.strip() for w in raw_wallets if len(w.strip()) >= 32))
+    wallets = []
+    notes = ""
+
+    if token_input.strip():
+        token_id = token_input.strip().split("/")[-1]
+        wallets, err = get_wallets_from_solscan(token_id)
+        if err:
+            st.error(err)
+            st.stop()
+        st.success(f"✅ Imported {len(wallets)} holders from token {token_id}")
+    else:
+        raw_wallets = wallet_input.strip().splitlines()
+        wallets = list(set(w.strip() for w in raw_wallets if len(w.strip()) >= 32))
 
     if not wallets:
-        st.warning("Please paste at least one valid wallet address.")
-    else:
-        results = []
-        funder_map = defaultdict(list)
-        reverse_map = defaultdict(list)
-        new_wallets = 0
+        st.warning("Please provide wallet addresses or a token.")
+        st.stop()
 
-        with st.spinner("Analyzing wallets... this may take a few seconds..."):
-            for wallet in wallets:
-                age, is_new = get_wallet_age(wallet)
-                funders = get_funders(wallet)
+    results = []
+    funder_map = defaultdict(list)
+    reverse_map = defaultdict(list)
+    new_wallets = 0
 
-                for f in funders:
-                    funder_map[f].append(wallet)
-                    reverse_map[wallet].append(f)
+    with st.spinner("Analyzing wallets... this may take a few seconds..."):
+        for wallet in wallets:
+            age, is_new = get_wallet_age(wallet)
+            funders = get_funders(wallet)
 
-                results.append({
-                    "Wallet": wallet,
-                    "Wallet Age (Days)": age,
-                    "New Wallet (<24h)": "✅" if is_new else "",
-                    "Is New Wallet": is_new,
-                    "Funders": ", ".join(funders)
-                })
+            for f in funders:
+                funder_map[f].append(wallet)
+                reverse_map[wallet].append(f)
 
-                if is_new:
-                    new_wallets += 1
-                time.sleep(0.1)
+            results.append({
+                "Wallet": wallet,
+                "Wallet Age (Days)": age,
+                "New Wallet (<24h)": "✅" if is_new else "",
+                "Is New Wallet": is_new,
+                "Funders": ", ".join(funders)
+            })
 
-        df = pd.DataFrame(results)
+            if is_new:
+                new_wallets += 1
+            time.sleep(0.1)
 
-        wallet_cluster_map = {}
-        funder_flag_map = defaultdict(bool)
-        for funder, funded_wallets in funder_map.items():
-            if len(funded_wallets) > 1:
-                for w in funded_wallets:
-                    wallet_cluster_map[w] = f"Cluster via {funder[:6]}..."
-                if funder in wallets:
-                    funder_flag_map[funder] = True
+    df = pd.DataFrame(results)
 
-        df["In Cluster"] = df["Wallet"].apply(lambda w: wallet_cluster_map.get(w, ""))
-        df["Is Funder"] = df["Wallet"].apply(lambda w: "✅" if funder_flag_map.get(w, False) else "")
+    wallet_cluster_map = {}
+    funder_flag_map = defaultdict(bool)
+    for funder, funded_wallets in funder_map.items():
+        if len(funded_wallets) > 1:
+            for w in funded_wallets:
+                wallet_cluster_map[w] = f"Cluster via {funder[:6]}..."
+            if funder in wallets:
+                funder_flag_map[funder] = True
 
-        def risk_score(row):
-            if row["Is New Wallet"] and row["In Cluster"]:
-                return "High"
-            elif row["Is New Wallet"] or row["In Cluster"]:
-                return "Medium"
-            return "Low"
+    df["In Cluster"] = df["Wallet"].apply(lambda w: wallet_cluster_map.get(w, ""))
+    df["Is Funder"] = df["Wallet"].apply(lambda w: "✅" if funder_flag_map.get(w, False) else "")
 
-        df["Risk Score"] = df.apply(risk_score, axis=1)
+    def risk_score(row):
+        if row["Is New Wallet"] and row["In Cluster"]:
+            return "High"
+        elif row["Is New Wallet"] or row["In Cluster"]:
+            return "Medium"
+        return "Low"
 
-        # Display summary sidebar
-        st.sidebar.header("📊 Summary")
-        st.sidebar.markdown(f"**Total Wallets:** {len(wallets)}")
-        st.sidebar.markdown(f"**New Wallets (<24h):** {new_wallets}")
-        st.sidebar.markdown(f"**Clustered Wallets:** {sum(df['In Cluster'] != '')}")
-        st.sidebar.markdown(f"**Wallets That Are Funders:** {df['Is Funder'].value_counts().get('✅', 0)}")
+    df["Risk Score"] = df.apply(risk_score, axis=1)
 
-        # Display results with styles
-        display_df = df.drop(columns=["Is New Wallet"])
-        if hide_low:
-            display_df = display_df[display_df["Risk Score"] != "Low"]
+    st.sidebar.header("📊 Summary")
+    st.sidebar.markdown(f"**Total Wallets:** {len(wallets)}")
+    st.sidebar.markdown(f"**New Wallets (<24h):** {new_wallets}")
+    st.sidebar.markdown(f"**Clustered Wallets:** {sum(df['In Cluster'] != '')}")
+    st.sidebar.markdown(f"**Wallets That Are Funders:** {df['Is Funder'].value_counts().get('✅', 0)}")
 
-        st.success("✅ Analysis complete.")
-        st.markdown("### 🧾 Results")
-        st.dataframe(display_df.style
-            .applymap(lambda val: "color: green; font-weight: bold" if val == "✅" else "", subset=["New Wallet (<24h)", "Is Funder"])
-            .applymap(lambda val: "background-color: #ffe599" if isinstance(val, str) and val else "", subset=["In Cluster"])
-            .applymap(lambda val:
-                      "background-color: #ffcccc" if val == "High" else
-                      ("background-color: #fff2cc" if val == "Medium" else ""),
-                      subset=["Risk Score"]))
+    display_df = df.drop(columns=["Is New Wallet"])
+    if hide_low:
+        display_df = display_df[display_df["Risk Score"] != "Low"]
 
-        # CSV Export
-        csv = display_df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download CSV", csv, "manual_rug_check_v05.csv", "text/csv")
+    st.success("✅ Analysis complete.")
+    st.markdown("### 🧾 Results")
+    st.dataframe(display_df.style
+        .applymap(lambda val: "color: green; font-weight: bold" if val == "✅" else "", subset=["New Wallet (<24h)", "Is Funder"])
+        .applymap(lambda val: "background-color: #ffe599" if isinstance(val, str) and val else "", subset=["In Cluster"])
+        .applymap(lambda val:
+                  "background-color: #ffcccc" if val == "High" else
+                  ("background-color: #fff2cc" if val == "Medium" else ""),
+                  subset=["Risk Score"]))
+
+    csv = display_df.to_csv(index=False).encode("utf-8")
+    st.download_button("📥 Download CSV", csv, "manual_rug_check_v06.csv", "text/csv")
